@@ -2142,6 +2142,90 @@ string convertJsonToASCII(string json)
 	return ret.data;
 }
 
+/**
+	Overrides the fields in existing that are given in overrides recursively.
+
+	Always replaces existing if it both aren't an object or an array.
+
+	Params:
+		existing       = The existing json value that should get overwritten or merged.
+		overrides      = A json object of fields that should overwrite in existing.
+		combine_arrays = Specifies if the existing array should get overwritten by overrides for each non-undefined element.
+
+	Returns: the merged Json object, existing if overrides is undefined, using overrides directly for value types, new objects for object & array.
+*/
+const(Json) combineJson(in Json existing, in Json overrides, bool combine_arrays = true)
+@safe {
+	if (overrides.type == Json.Type.undefined)
+		return existing;
+	if (existing.type != overrides.type)
+		return overrides;
+	final switch (existing.type) {
+	case Json.Type.undefined:
+	case Json.Type.bool_:
+	case Json.Type.float_:
+	case Json.Type.int_:
+	case Json.Type.null_:
+	case Json.Type.string:
+	case Json.Type.bigInt:
+		return overrides;
+	case Json.Type.object:
+		Json ret = existing;
+		foreach (key, value; overrides.get!(Json[string])) {
+			ret[key] = combineJson(ret[key], overrides[key], combine_arrays);
+		}
+		return ret;
+	case Json.Type.array:
+		if (combine_arrays) {
+			Json ret = Json.emptyArray;
+			const size_t len = min(existing.length, overrides.length);
+			for (size_t i = 0; i < len; i++)
+				ret.appendArrayElement(combineJson(existing[i], overrides[i], combine_arrays));
+			if (overrides.length < existing.length) {
+				for (size_t i = overrides.length; i < existing.length; i++)
+					ret.appendArrayElement(existing[i]);
+			} else if (overrides.length > existing.length) {
+				for (size_t i = existing.length; i < overrides.length; i++)
+					ret.appendArrayElement(overrides[i]);
+			}
+			return ret;
+		} else {
+			return overrides;
+		}
+	}
+}
+
+///
+@safe unittest
+{
+	Json config = parseJsonString(q{{
+		"name": "foo",
+		"hello": "world",
+		"d-man": {
+			"is": "cool",
+			"health": 100
+		},
+		"array": [1, 2, 3, 4]
+	}});
+	Json overrides = parseJsonString(q{{
+		"hello": "World!",
+		"d-man": {
+			"is": "cute"
+		},
+		"array": []
+	}});
+	overrides["array"] = [Json.undefined, Json.undefined, Json(5)];
+	const(Json) merged = combineJson(config, overrides);
+	assert(merged == parseJsonString(q{{
+		"name": "foo",
+		"hello": "World!",
+		"d-man": {
+			"is": "cute",
+			"health": 100
+		},
+		"array": [1, 2, 5, 4]
+	}}));
+}
 
 /// private
 private void jsonEscape(bool escape_unicode = false, R)(ref R dst, string s)

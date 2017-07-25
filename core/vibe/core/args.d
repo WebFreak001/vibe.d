@@ -186,9 +186,27 @@ private string[] getConfigPaths()
 	import std.process : environment;
 	version (Windows)
 		result ~= environment.get("USERPROFILE");
-	else
-		result ~= [environment.get("HOME"), "/etc/vibe/"];
+	else {
+		result ~= environment.get("HOME");
+		auto xdgconfig = environment.get("XDG_CONFIG_HOME");
+		if (xdgconfig !is null)
+			result ~= xdgconfig;
+		auto configdirs = environment.get("XDG_CONFIG_DIRS");
+		if (configdirs !is null)
+			result ~= configdirs.split(':');
+		result ~= "/etc/vibe/";
+	}
 	return result;
+}
+
+void mergeIntoConfig(Json config)
+{
+	if (!g_haveConfig) {
+		g_config = config;
+		g_haveConfig = true;
+	} else {
+		g_config = combineJson(g_config, config, false);
+	}
 }
 
 // this is invoked by the first readOption call (at least vibe.core will perform one)
@@ -201,16 +219,13 @@ private void init()
 
 	if (!g_args.length) g_args = ["dummy"];
 
-	// TODO: let different config files override individual fields
 	auto searchpaths = getConfigPaths();
-	foreach (spath; searchpaths) {
+	foreach_reverse (spath; searchpaths) {
 		auto cpath = buildPath(spath, configName);
 		if (cpath.exists) {
 			scope(failure) logError("Failed to parse config file %s.", cpath);
 			auto text = stripUTF8Bom(cpath.readText());
-			g_config = text.parseJson();
-			g_haveConfig = true;
-			break;
+			mergeIntoConfig(text.parseJson());
 		}
 	}
 
